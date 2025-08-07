@@ -1,0 +1,506 @@
+{
+  "name": "My workflow 3",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -992,
+        -80
+      ],
+      "id": "c6d3a1fa-28fb-4ac4-bbf7-25298501d632",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://metals.dev/dashboard",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer VD8TITGD3SPQFPTL2VR3499TL2VR3"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -816,
+        -160
+      ],
+      "id": "3411b59e-a501-4d84-9b83-21c08ecd58ef",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "https://api.metals.dev/v1/latest",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "VD8TITGD3SPQFPTL2VR3499TL2VR3"
+            },
+            {
+              "name": "from",
+              "value": "USD"
+            },
+            {
+              "name": "to ",
+              "value": "INR"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -672,
+        96
+      ],
+      "id": "c13281aa-48be-42fa-81c0-289c3226fac2",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "url": "https://alpha-vantage.p.rapidapi.com/query",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "function",
+              "value": "TIME_SERIES_DAILY"
+            },
+            {
+              "name": "symbol",
+              "value": "MSFT"
+            },
+            {
+              "name": "outputsize",
+              "value": "compact"
+            },
+            {
+              "name": "datatype",
+              "value": "json"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-rapidapi-host",
+              "value": "alpha-vantage.p.rapidapi.com"
+            },
+            {
+              "name": "x-rapidapi-key",
+              "value": "6298431753mshdebd969ec1c2c40p1e03c5jsn181ae7c46792"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        -128
+      ],
+      "id": "30525e21-7efe-4961-a7e3-111c1554839d",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all input data with error handling\nconst inputs = $input.all();\nconsole.log('Total inputs received:', inputs.length);\n\n// Safely get data with fallbacks\nconst goldData = inputs[0]?.json || {};\nconst currencyData = inputs[1]?.json || { rates: { INR: 83 } }; // Fallback currency\nconst stockData = inputs[2]?.json || { data: [] }; // Fallback stock data\n\nconsole.log('Gold data:', goldData);\nconsole.log('Currency data:', currencyData);\nconsole.log('Stock data:', stockData);\n\n// Process timestamp\nconst now = new Date();\nconst istTime = new Date(now.toLocaleString(\"en-US\", {timeZone: \"Asia/Kolkata\"}));\n\n// Extract gold rates (handle different response formats)\nlet goldRates = {};\nif (goldData.rates) {\n  goldRates = {\n    gold_per_gram: goldData.rates.gold || goldData.rates.XAU || 0,\n    silver_per_gram: goldData.rates.silver || goldData.rates.XAG || 0,\n    platinum_per_gram: goldData.rates.platinum || goldData.rates.XPT || 0\n  };\n} else if (goldData.gold) {\n  goldRates = {\n    gold_per_gram: goldData.gold || 0,\n    silver_per_gram: goldData.silver || 0,\n    platinum_per_gram: goldData.platinum || 0\n  };\n} else {\n  // Fallback rates if no data\n  goldRates = {\n    gold_per_gram: 6000, // Default fallback\n    silver_per_gram: 75,\n    platinum_per_gram: 2500\n  };\n}\n\n// Calculate different purities\nconst gold24k = Math.round(goldRates.gold_per_gram || 6000);\nconst gold22k = Math.round((goldRates.gold_per_gram || 6000) * 0.916);\nconst gold18k = Math.round((goldRates.gold_per_gram || 6000) * 0.75);\n\n// Get previous rates from memory (persistent across executions)\nconst previousData = $vars.previousGoldData || {\n  gold24k: gold24k,\n  timestamp: istTime.toISOString(),\n  dailyHigh: gold24k,\n  dailyLow: gold24k\n};\n\n// Calculate changes\nconst change24h = gold24k - (previousData.gold24k || gold24k);\nconst changePercent = previousData.gold24k ? ((change24h / previousData.gold24k) * 100) : 0;\n\n// Update daily high/low\nconst dailyHigh = Math.max(previousData.dailyHigh || gold24k, gold24k);\nconst dailyLow = Math.min(previousData.dailyLow || gold24k, gold24k);\n\n// Market status\nconst marketHours = getMarketStatus(istTime);\n\n// Process stock data safely\nconst stockInfo = processStockData(stockData);\n\n// Create comprehensive data object\nconst processedData = {\n  timestamp: istTime.toISOString(),\n  market_session: marketHours,\n  rates: {\n    gold_24k_per_gram: gold24k,\n    gold_22k_per_gram: gold22k,\n    gold_18k_per_gram: gold18k,\n    silver_per_gram: Math.round(goldRates.silver_per_gram || 75),\n    platinum_per_gram: Math.round(goldRates.platinum_per_gram || 2500)\n  },\n  price_movement: {\n    change_24h: Math.round(change24h * 100) / 100,\n    change_percent_24h: Math.round(changePercent * 100) / 100,\n    daily_high: dailyHigh,\n    daily_low: dailyLow,\n    volatility: Math.abs(changePercent) > 1 ? 'HIGH' : Math.abs(changePercent) > 0.5 ? 'MEDIUM' : 'LOW'\n  },\n  market_data: {\n    usd_inr: (currencyData.rates && currencyData.rates.INR) ? currencyData.rates.INR : 83,\n    stock_sentiment: stockInfo.sentiment,\n    nifty_change: stockInfo.niftyChange\n  },\n  data_quality: {\n    gold_data_source: 'metals.dev',\n    last_updated: goldData.timestamp || istTime.toISOString(),\n    api_status: goldData.status || 'unknown',\n    inputs_received: inputs.length\n  }\n};\n\n// Store current data for next comparison\n$vars.previousGoldData = {\n  gold24k: gold24k,\n  timestamp: istTime.toISOString(),\n  dailyHigh: dailyHigh,\n  dailyLow: dailyLow\n};\n\n// Helper functions\nfunction getMarketStatus(time) {\n  const hour = time.getHours();\n  const day = time.getDay();\n  \n  if (day === 0) return 'CLOSED_SUNDAY';\n  if (hour >= 9 && hour <= 18) return 'ACTIVE_HOURS';\n  if (hour >= 19 && hour <= 21) return 'EVENING_TRADING';\n  return 'AFTER_HOURS';\n}\n\nfunction processStockData(stocks) {\n  try {\n    if (!stocks || !stocks.data || !Array.isArray(stocks.data)) {\n      return { sentiment: 'NEUTRAL', niftyChange: 0 };\n    }\n    \n    const niftyData = stocks.data.find(s => s.symbol === 'NIFTY 50' || s.identifier === 'NIFTY 50');\n    const change = niftyData ? (niftyData.pChange || 0) : 0;\n    \n    return {\n      sentiment: change > 1 ? 'POSITIVE' : change < -1 ? 'NEGATIVE' : 'NEUTRAL',\n      niftyChange: Math.round(change * 100) / 100\n    };\n  } catch (error) {\n    console.error('Error processing stock data:', error);\n    return { sentiment: 'UNKNOWN', niftyChange: 0 };\n  }\n}\n\nconsole.log('Final processed data:', processedData);\n\nreturn [{ json: processedData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        112
+      ],
+      "id": "51d1f63d-3e2d-4276-a08b-75e1e48f930a",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst currentGold22k = data.rates.gold_22k_per_gram;\nconst currentGold24k = data.rates.gold_24k_per_gram;\n\nconsole.log('Analyzing investment for Gold 22K:', currentGold22k);\n\n// Investment parameters (you can customize these)\nconst targetPrice = 6000; // Target price per gram for 22k\nconst monthlyBudget = 5000;\nconst riskTolerance = 'MODERATE'; // LOW, MODERATE, HIGH\n\n// Advanced analysis\nconst analysis = {\n  market_assessment: assessMarketCondition(data),\n  investment_opportunity: calculateOpportunity(currentGold22k, targetPrice, data),\n  risk_analysis: assessRisk(data),\n  timing_analysis: analyzeTimingFactors(data),\n  recommendation: null, // Will be set below\n  action_plan: null,    // Will be set below\n  alerts: null          // Will be set below\n};\n\n// Generate recommendation after assessments\nanalysis.recommendation = generateSmartRecommendation(currentGold22k, targetPrice, data, monthlyBudget, analysis);\nanalysis.action_plan = createActionPlan(currentGold22k, targetPrice, data, analysis.recommendation);\nanalysis.alerts = generateAlerts(currentGold22k, targetPrice, data);\n\nconsole.log('Investment recommendation:', analysis.recommendation.action);\nconsole.log('Confidence level:', analysis.recommendation.confidence);\n\nfunction assessMarketCondition(marketData) {\n  const volatility = marketData.price_movement.volatility;\n  const change = marketData.price_movement.change_percent_24h;\n  const stockSentiment = marketData.market_data.stock_sentiment;\n  \n  let score = 50; // Base score\n  \n  // Price trend scoring\n  if (change <= -1) score += 30; // Falling prices good for buyers\n  else if (change <= -0.5) score += 20;\n  else if (change >= 1) score -= 20; // Rising prices bad for buyers\n  else if (change >= 2) score -= 30;\n  \n  // Volatility scoring\n  if (volatility === 'LOW') score += 10; // Stable market\n  else if (volatility === 'HIGH') score -= 15; // Risky market\n  \n  // Stock market correlation\n  if (stockSentiment === 'NEGATIVE') score += 15; // Usually gold rises when stocks fall\n  else if (stockSentiment === 'POSITIVE') score -= 10;\n  \n  // Market session bonus\n  if (marketData.market_session === 'ACTIVE_HOURS') score += 5;\n  \n  const condition = score >= 70 ? 'EXCELLENT' : \n                   score >= 55 ? 'GOOD' : \n                   score >= 40 ? 'AVERAGE' : 'POOR';\n  \n  return {\n    overall_score: Math.max(0, Math.min(100, score)),\n    condition: condition,\n    reasoning: generateMarketReasoning(score, change, volatility, stockSentiment),\n    factors: {\n      price_trend: change <= -1 ? 'FAVORABLE' : change >= 1 ? 'UNFAVORABLE' : 'NEUTRAL',\n      volatility_impact: volatility,\n      stock_correlation: stockSentiment,\n      timing: marketData.market_session\n    }\n  };\n}\n\nfunction calculateOpportunity(currentRate, targetRate, data) {\n  const priceDiff = currentRate - targetRate;\n  const percentFromTarget = (priceDiff / targetRate) * 100;\n  \n  // Base opportunity scoring\n  let opportunityScore = 0;\n  if (currentRate <= targetRate) opportunityScore = 100;\n  else if (currentRate <= targetRate + 50) opportunityScore = 85;\n  else if (currentRate <= targetRate + 100) opportunityScore = 70;\n  else if (currentRate <= targetRate + 150) opportunityScore = 50;\n  else if (currentRate <= targetRate + 200) opportunityScore = 30;\n  else opportunityScore = 15;\n  \n  // Adjust for market conditions\n  const change = data.price_movement.change_percent_24h;\n  if (change <= -1.5) opportunityScore += 15; // Big drop bonus\n  else if (change <= -1) opportunityScore += 10;\n  else if (change >= 1.5) opportunityScore -= 15; // Rising price penalty\n  \n  if (data.price_movement.volatility === 'HIGH') opportunityScore -= 10;\n  else if (data.price_movement.volatility === 'LOW') opportunityScore += 5;\n  \n  return {\n    score: Math.min(100, Math.max(0, opportunityScore)),\n    current_rate: currentRate,\n    target_rate: targetRate,\n    difference: Math.round(priceDiff),\n    percent_from_target: Math.round(percentFromTarget * 100) / 100,\n    opportunity_level: opportunityScore >= 85 ? 'EXCELLENT' : \n                      opportunityScore >= 70 ? 'GOOD' : \n                      opportunityScore >= 50 ? 'MODERATE' : \n                      opportunityScore >= 30 ? 'POOR' : 'AVOID',\n    buy_signal_strength: opportunityScore >= 85 ? 'STRONG_BUY' :\n                        opportunityScore >= 70 ? 'BUY' :\n                        opportunityScore >= 50 ? 'HOLD' : 'AVOID'\n  };\n}\n\nfunction assessRisk(data) {\n  const volatility = data.price_movement.volatility;\n  const change24h = Math.abs(data.price_movement.change_percent_24h);\n  const marketSession = data.market_session;\n  \n  let riskLevel = 'LOW';\n  let riskScore = 20; // Base risk score\n  let riskFactors = [];\n  \n  // Volatility risk\n  if (volatility === 'HIGH') {\n    riskScore += 40;\n    riskFactors.push('High price volatility detected');\n  } else if (volatility === 'MEDIUM') {\n    riskScore += 20;\n    riskFactors.push('Moderate price volatility');\n  }\n  \n  // Price movement risk\n  if (change24h > 3) {\n    riskScore += 30;\n    riskFactors.push('Extreme price movement in last 24h');\n  } else if (change24h > 2) {\n    riskScore += 20;\n    riskFactors.push('Significant price movement in last 24h');\n  }\n  \n  // Market timing risk\n  if (marketSession === 'AFTER_HOURS') {\n    riskScore += 10;\n    riskFactors.push('After market hours - limited liquidity');\n  }\n  \n  // Stock market correlation risk\n  if (data.market_data.stock_sentiment === 'NEGATIVE') {\n    riskFactors.push('Negative stock sentiment may affect gold prices');\n  }\n  \n  // Determine risk level\n  if (riskScore >= 70) riskLevel = 'HIGH';\n  else if (riskScore >= 40) riskLevel = 'MEDIUM';\n  else riskLevel = 'LOW';\n  \n  return {\n    level: riskLevel,\n    score: Math.min(100, riskScore),\n    factors: riskFactors,\n    recommendation: riskLevel === 'HIGH' ? 'Consider smaller investment amounts or wait' :\n                   riskLevel === 'MEDIUM' ? 'Proceed with caution and standard amounts' : \n                   'Normal investment approach recommended',\n    max_recommended_percentage: riskLevel === 'HIGH' ? 50 : riskLevel === 'MEDIUM' ? 75 : 100\n  };\n}\n\nfunction analyzeTimingFactors(data) {\n  const hour = new Date(data.timestamp).getHours();\n  const session = data.market_session;\n  \n  let timingScore = 50; // Base score\n  let factors = [];\n  \n  // Time of day analysis\n  if (hour >= 10 && hour <= 16) {\n    timingScore += 15;\n    factors.push('Optimal trading hours (10 AM - 4 PM)');\n  } else if (hour >= 9 && hour <= 18) {\n    timingScore += 10;\n    factors.push('Good trading hours');\n  } else if (hour >= 20 || hour <= 8) {\n    timingScore -= 10;\n    factors.push('Off-market hours - prices may be stale');\n  }\n  \n  // Market session analysis\n  if (session === 'ACTIVE_HOURS') {\n    timingScore += 15;\n    factors.push('Active market session');\n  } else if (session === 'EVENING_TRADING') {\n    timingScore += 5;\n    factors.push('Evening trading session');\n  } else if (session === 'CLOSED_SUNDAY') {\n    timingScore -= 20;\n    factors.push('Market closed - weekend pricing');\n  }\n  \n  // Day of week consideration\n  const dayOfWeek = new Date(data.timestamp).getDay();\n  if (dayOfWeek >= 1 && dayOfWeek <= 5) {\n    timingScore += 5;\n    factors.push('Weekday trading');\n  }\n  \n  return {\n    score: Math.max(0, Math.min(100, timingScore)),\n    factors: factors,\n    best_time_to_buy: timingScore >= 70 ? 'EXCELLENT_TIME' : \n                     timingScore >= 60 ? 'GOOD_TIME' : \n                     timingScore >= 40 ? 'AVERAGE_TIME' : 'POOR_TIME',\n    timing_recommendation: timingScore >= 60 ? 'Act now if other factors align' :\n                          timingScore >= 40 ? 'Timing is neutral' :\n                          'Consider waiting for better timing'\n  };\n}\n\nfunction generateSmartRecommendation(currentRate, targetRate, data, budget, analysis) {\n  const opportunity = analysis.investment_opportunity;\n  const risk = analysis.risk_analysis;\n  const timing = analysis.timing_analysis;\n  const market = analysis.market_assessment;\n  \n  let action = 'HOLD';\n  let confidence = 50;\n  let amount = 0;\n  let urgency = 'LOW';\n  let reasoning = '';\n  \n  // Calculate composite score\n  const compositeScore = (\n    opportunity.score * 0.4 +\n    market.overall_score * 0.3 +\n    timing.score * 0.2 +\n    (100 - risk.score) * 0.1\n  );\n  \n  console.log('Composite investment score:', compositeScore);\n  \n  // Decision logic based on composite score and individual factors\n  if (opportunity.score >= 85 && risk.level !== 'HIGH' && compositeScore >= 75) {\n    action = 'BUY_NOW';\n    confidence = Math.min(95, compositeScore);\n    amount = Math.round(budget * (risk.max_recommended_percentage / 100));\n    urgency = 'HIGH';\n    reasoning = `Excellent opportunity with ${opportunity.opportunity_level} rating and ${market.condition} market conditions`;\n    \n  } else if (opportunity.score >= 70 && compositeScore >= 65) {\n    action = 'BUY_GRADUALLY';\n    confidence = Math.min(85, compositeScore);\n    amount = Math.round(budget * 0.7 * (risk.max_recommended_percentage / 100));\n    urgency = 'MEDIUM';\n    reasoning = `Good opportunity with manageable risk levels`;\n    \n  } else if (currentRate >= targetRate + 200 && risk.level === 'HIGH') {\n    action = 'AVOID';\n    confidence = 90;\n    amount = 0;\n    urgency = 'NONE';\n    reasoning = `Price too high (₹${currentRate - targetRate} above target) with high risk`;\n    \n  } else if (opportunity.score >= 50 && risk.level === 'LOW') {\n    action = 'SMALL_BUY';\n    confidence = Math.min(75, compositeScore);\n    amount = Math.round(budget * 0.4);\n    urgency = 'LOW';\n    reasoning = `Moderate opportunity with low risk - conservative approach`;\n    \n  } else {\n    action = 'WAIT_AND_MONITOR';\n    confidence = 60;\n    amount = Math.round(budget * 0.2);\n    urgency = 'LOW';\n    reasoning = `Mixed signals - wait for clearer opportunity`;\n  }\n  \n  const gramsCanBuy = amount > 0 ? (amount / currentRate) : 0;\n  \n  return {\n    action: action,\n    confidence: Math.round(confidence),\n    urgency: urgency,\n    recommended_amount: amount,\n    grams_you_can_buy: Math.round(gramsCanBuy * 1000) / 1000,\n    reasoning: reasoning,\n    composite_score: Math.round(compositeScore),\n    investment_grade: compositeScore >= 80 ? 'A+' :\n                     compositeScore >= 70 ? 'A' :\n                     compositeScore >= 60 ? 'B' :\n                     compositeScore >= 50 ? 'C' : 'D',\n    alternative_strategy: generateAlternativeStrategy(currentRate, targetRate, budget, risk.level)\n  };\n}\n\nfunction createActionPlan(currentRate, targetRate, data, recommendation) {\n  const actions = [];\n  \n  if (recommendation.action === 'BUY_NOW') {\n    actions.push({\n      priority: 'HIGH',\n      task: 'Execute gold purchase immediately',\n      timeline: 'Within 2-4 hours',\n      amount: `₹${recommendation.recommended_amount}`,\n      expected_grams: `${recommendation.grams_you_can_buy}g`,\n      details: 'Check 2-3 local dealers for best rates'\n    });\n    actions.push({\n      priority: 'MEDIUM',\n      task: 'Verify current market rates',\n      timeline: 'Before purchase',\n      potential_savings: '₹20-50 per gram',\n      details: 'Compare online vs physical store rates'\n    });\n    \n  } else if (recommendation.action === 'BUY_GRADUALLY') {\n    actions.push({\n      priority: 'MEDIUM',\n      task: 'Start gradual investment plan',\n      timeline: 'This week',\n      amount: `₹${Math.round(recommendation.recommended_amount / 2)} now, rest in 1 week`,\n      strategy: 'Rupee cost averaging'\n    });\n    \n  } else if (recommendation.action === 'WAIT_AND_MONITOR') {\n    actions.push({\n      priority: 'MEDIUM',\n      task: 'Set up price alerts',\n      timeline: 'Today',\n      target: `₹${targetRate} or below`,\n      benefit: 'Get notified when opportunity improves'\n    });\n    actions.push({\n      priority: 'LOW',\n      task: 'Review monthly budget allocation',\n      timeline: 'This week',\n      benefit: 'Prepare for next opportunity'\n    });\n  }\n  \n  // Always add monitoring task\n  actions.push({\n    priority: 'LOW',\n    task: 'Monitor market trends',\n    timeline: 'Daily',\n    focus: 'Watch for significant price movements or market changes'\n  });\n  \n  return actions;\n}\n\nfunction generateAlerts(currentRate, targetRate, data) {\n  const alerts = [];\n  const change = data.price_movement.change_percent_24h;\n  \n  // Target price reached alert\n  if (currentRate <= targetRate) {\n    alerts.push({\n      type: 'OPPORTUNITY',\n      severity: 'HIGH',\n      title: '🎯 TARGET PRICE REACHED!',\n      message: `Gold 22K at ₹${currentRate} - At/below your target of ₹${targetRate}!`,\n      action_required: true,\n      expected_action: 'Consider immediate purchase'\n    });\n  }\n  \n  // Excellent deal alert\n  if (currentRate <= targetRate - 100) {\n    alerts.push({\n      type: 'RARE_OPPORTUNITY',\n      severity: 'URGENT',\n      title: '🔥 RARE OPPORTUNITY!',\n      message: `Gold ₹${Math.abs(currentRate - targetRate)} below target! Exceptional deal!`,\n      action_required: true,\n      expected_action: 'Buy maximum affordable amount'\n    });\n  }\n  \n  // Significant price drop alert\n  if (change <= -2) {\n    alerts.push({\n      type: 'PRICE_DROP',\n      severity: 'MEDIUM',\n      title: '📉 SIGNIFICANT PRICE DROP',\n      message: `Gold dropped by ${Math.abs(change).toFixed(1)}% in 24h. Buying opportunity!`,\n      action_required: false,\n      trend: 'FAVORABLE'\n    });\n  }\n  \n  // High volatility warning\n  if (data.price_movement.volatility === 'HIGH') {\n    alerts.push({\n      type: 'VOLATILITY',\n      severity: 'MEDIUM',\n      title: '⚠️ HIGH VOLATILITY DETECTED',\n      message: 'Gold prices showing high volatility. Exercise caution with large purchases.',\n      action_required: false,\n      recommendation: 'Consider smaller investment amounts'\n    });\n  }\n  \n  // Overpriced warning\n  if (currentRate >= targetRate + 300) {\n    alerts.push({\n      type: 'OVERPRICED',\n      severity: 'LOW',\n      title: '💸 SIGNIFICANTLY OVERPRICED',\n      message: `Gold at ₹${currentRate} is ₹${currentRate - targetRate} above target. Consider waiting.`,\n      action_required: false,\n      recommendation: 'Wait for price correction'\n    });\n  }\n  \n  return alerts;\n}\n\n// Helper function implementations\nfunction generateMarketReasoning(score, change, volatility, stockSentiment) {\n  let reasons = [];\n  if (change <= -1) reasons.push('prices falling (favorable for buyers)');\n  else if (change >= 1) reasons.push('prices rising (unfavorable for buyers)');\n  \n  if (volatility === 'LOW') reasons.push('stable market conditions');\n  else if (volatility === 'HIGH') reasons.push('high volatility (risky)');\n  \n  if (stockSentiment === 'NEGATIVE') reasons.push('negative stock sentiment (often good for gold)');\n  else if (stockSentiment === 'POSITIVE') reasons.push('positive stock sentiment (may reduce gold demand)');\n  \n  return reasons.length > 0 ? reasons.join(', ') : 'mixed market signals';\n}\n\nfunction generateAlternativeStrategy(currentRate, targetRate, budget, riskLevel) {\n  if (currentRate > targetRate + 150) {\n    return {\n      strategy: 'RUPEE_COST_AVERAGING',\n      description: 'Invest smaller amounts weekly instead of lump sum',\n      weekly_amount: Math.round(budget / 4),\n      duration: '4 weeks',\n      benefit: 'Reduces impact of price volatility and timing risk'\n    };\n  } else if (riskLevel === 'HIGH') {\n    return {\n      strategy: 'WAIT_AND_WATCH',\n      description: 'Monitor for 1-2 weeks before investing',\n      monitoring_frequency: 'Daily',\n      trigger_conditions: [`Price drops below ₹${targetRate + 50}`, 'Volatility decreases'],\n      benefit: 'Avoid buying during high-risk periods'\n    };\n  }\n  return null;\n}\n\n// Combine original data with analysis\nconst finalData = {\n  ...data,\n  investment_analysis: analysis,\n  analysis_timestamp: new Date().toISOString(),\n  analysis_version: '2.0'\n};\n\nconsole.log('Analysis complete. Final recommendation:', analysis.recommendation.action);\n\nreturn [{ json: finalData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -192
+      ],
+      "id": "88d7a9f6-ff29-4d2f-a038-5e3157cc0fd9",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "investment_analysis.recommendation.urgency",
+                    "rightValue": "HIGH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "af563a12-9d18-46af-8bb8-5cb846d72dc5"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3e2dd125-7ac6-4a6a-bb8a-1c2af221b019",
+                    "leftValue": "investment_analysis.recommendation.urgency",
+                    "rightValue": "MEDIUM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1e2823ce-c35b-4b50-a0e3-1d8b71186419",
+                    "leftValue": "={{ $json.investment_analysis.alerts.length }}",
+                    "rightValue": 0,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8df31b8e-00b1-436e-b393-fdc2d9e6abed",
+                    "leftValue": "true",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        128,
+        -96
+      ],
+      "id": "01f75dc9-a676-4409-be41-889c478eccd5",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst analysis = data.investment_analysis;\nconst rates = data.rates;\n\n// Create urgency-based message\nlet message = '';\n\nif (analysis.recommendation.urgency === 'HIGH') {\n  message = `🚨 URGENT GOLD ALERT! 🚨\n\n🏆 EXCELLENT OPPORTUNITY!\n💰 22K Gold: ₹${rates.gold_22k_per_gram}/gram\n🎯 Your Target: ₹6000/gram\n📊 Opportunity Score: ${analysis.investment_opportunity.score}/100\n\n🤖 AI RECOMMENDATION: ${analysis.recommendation.action}\n💡 Confidence: ${analysis.recommendation.confidence}%\n💵 Suggested Amount: ₹${analysis.recommendation.recommended_amount}\n⚱️ Gold Quantity: ${analysis.recommendation.grams_you_can_buy}g\n\n📈 24H Change: ${data.price_movement.change_percent_24h}%\n🔥 Market: ${analysis.market_assessment.condition}\n\n⚡ IMMEDIATE ACTION NEEDED:\n${analysis.action_plan.map(item => `• ${item.task}`).slice(0, 2).join('\\n')}\n\n🕐 Alert Time: ${new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}\n\n💡 This is AI-generated advice. Always verify current rates before purchase!`;\n\n} else if (analysis.recommendation.urgency === 'MEDIUM') {\n  message = `📊 Gold Investment Update\n\n💰 Current Rates:\n- 22K: ₹${rates.gold_22k_per_gram}/gram\n- 24K: ₹${rates.gold_24k_per_gram}/gram\n- Change: ${data.price_movement.change_percent_24h}%\n\n🤖 AI Says: ${analysis.recommendation.action}\n📈 Opportunity: ${analysis.investment_opportunity.opportunity_level}\n⚡ Suggested: ₹${analysis.recommendation.recommended_amount}\n\n💡 ${analysis.recommendation.reasoning}\n\n🕐 ${new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`;\n\n} else {\n  // Alert-based message\n  const alertMessages = analysis.alerts.map(alert => \n    `${alert.title}\\n${alert.message}`\n  ).join('\\n\\n');\n  \n  message = `🔔 Gold Market Alert\n\n${alertMessages}\n\n💰 Current 22K: ₹${rates.gold_22k_per_gram}/gram\n📊 Market: ${analysis.market_assessment.condition}\n\n🕐 ${new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`;\n}\n\nreturn [{\n  json: {\n    ...data,\n    formatted_whatsapp_message: message\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        208
+      ],
+      "id": "0b6c5180-759a-4a9d-87f1-7e37f9a3f6a5",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "2486db41-ea97-808c-b709-cd0658853cd6",
+          "mode": "list",
+          "cachedResultName": "Gold Investment Analysis",
+          "cachedResultUrl": "https://www.notion.so/2486db41ea97808cb709cd0658853cd6"
+        },
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Name|title",
+              "title": "={{$json.timestamp}}"
+            },
+            {
+              "key": "Timestamp|date",
+              "date": "2025-08-08T08:00:00",
+              "timezone": "Asia/Calcutta"
+            },
+            {
+              "key": "Gold_22K|number",
+              "numberValue": 5496
+            },
+            {
+              "key": "Gold_24K|number",
+              "numberValue": 10190
+            },
+            {
+              "key": "Change_24H|number",
+              "numberValue": 10210
+            },
+            {
+              "key": "AI_Action|select",
+              "selectValue": "BUY"
+            },
+            {
+              "key": "Confidence|number",
+              "numberValue": 78
+            },
+            {
+              "key": "Opportunity_Score|number",
+              "numberValue": 200
+            },
+            {
+              "key": "Market_Condition|select",
+              "selectValue": "Neutral"
+            },
+            {
+              "key": "Market_Session|select",
+              "selectValue": "Asian Session"
+            },
+            {
+              "key": "Risk_Level|select",
+              "selectValue": "Low Risk 🟢"
+            },
+            {
+              "key": "Recommended_Amount|number",
+              "numberValue": 7000
+            },
+            {
+              "key": "Urgency|select",
+              "selectValue": "Medium"
+            },
+            {
+              "key": "Visual_Rating|select",
+              "selectValue": "⭐⭐⭐⭐ Very Good"
+            },
+            {
+              "key": "Notes|rich_text",
+              "richText": true,
+              "text": {
+                "text": [
+                  {
+                    "text": "={{$json.investment_analysis.recommendation.reasoning}}",
+                    "annotationUi": {}
+                  }
+                ]
+              }
+            },
+            {
+              "key": "External_Factors|multi_select",
+              "multiSelectValue": [
+                "Market Sentiment",
+                "Geopolitical Events",
+                "Supply & Demand",
+                "Inflation"
+              ]
+            },
+            {
+              "key": "Follow_Up_Date|date",
+              "timezone": "Asia/Calcutta"
+            },
+            {
+              "key": "Price_Trend|select",
+              "selectValue": "Rising Moderately"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        352,
+        208
+      ],
+      "id": "e92ffb1f-96da-4e49-b5e6-f9d2dbe880d9",
+      "name": "Create a database page",
+      "credentials": {
+        "notionApi": {
+          "id": "3lLSZGdJQNtotPPf",
+          "name": "Gold man "
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [],
+        [],
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Create a database page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8a27ff8b-70f8-4ab5-acc1-c09d575d7527",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7c0bc069a5bd01b81cda94712f1a22008afa60786df61e7abf4a55f6f380e0ba"
+  },
+  "id": "mX4PiUl1BzdCmxBv",
+  "tags": []
+}
